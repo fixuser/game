@@ -38,8 +38,8 @@ func (m *mockService) Unload(_ context.Context) error {
 	return m.unloadErr
 }
 
-// TestBootLoadOrder 测试服务按注册顺序加载
-func TestBootLoadOrder(t *testing.T) {
+// TestLifecycleLoadOrder 测试服务按注册顺序加载
+func TestLifecycleLoadOrder(t *testing.T) {
 	var seq []string
 	b := NewBoot()
 	b.Register(
@@ -62,8 +62,8 @@ func TestBootLoadOrder(t *testing.T) {
 	}
 }
 
-// TestBootUnloadReverseOrder 测试服务按逆序卸载
-func TestBootUnloadReverseOrder(t *testing.T) {
+// TestLifecycleUnloadReverseOrder 测试服务按逆序卸载
+func TestLifecycleUnloadReverseOrder(t *testing.T) {
 	var loadSeq, unloadSeq []string
 	b := NewBoot()
 	b.Register(
@@ -88,8 +88,8 @@ func TestBootUnloadReverseOrder(t *testing.T) {
 	}
 }
 
-// TestBootLoadFailRollback 测试加载失败时自动回滚已加载的服务
-func TestBootLoadFailRollback(t *testing.T) {
+// TestLifecycleLoadFailRollback 测试加载失败时自动回滚已加载的服务
+func TestLifecycleLoadFailRollback(t *testing.T) {
 	var loadSeq, unloadSeq []string
 	errFail := errors.New("load failed")
 
@@ -129,8 +129,8 @@ func TestBootLoadFailRollback(t *testing.T) {
 	}
 }
 
-// TestBootRegisterDeduplicate 测试 Register 去重，同名服务只保留第一个
-func TestBootRegisterDeduplicate(t *testing.T) {
+// TestLifecycleRegisterDeduplicate 测试 Register 去重，同名服务只保留第一个
+func TestLifecycleRegisterDeduplicate(t *testing.T) {
 	var seq []string
 	b := NewBoot()
 	b.Register(
@@ -173,8 +173,8 @@ func TestBootSetGet(t *testing.T) {
 	}
 }
 
-// TestBootUnloadContinuesOnError 测试卸载时即使某个服务失败也继续卸载其余服务
-func TestBootUnloadContinuesOnError(t *testing.T) {
+// TestLifecycleUnloadContinuesOnError 测试卸载时即使某个服务失败也继续卸载其余服务
+func TestLifecycleUnloadContinuesOnError(t *testing.T) {
 	var unloadSeq []string
 	b := NewBoot()
 	b.Register(
