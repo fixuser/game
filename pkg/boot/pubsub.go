@@ -205,16 +205,14 @@ type Subscriber struct {
 
 // Start 启动 worker pool 开始消费消息，使用 atomic.Bool 确保只启动一次
 func (s *Subscriber) Start(ctx context.Context) {
-	if !s.started.CompareAndSwap(false, true) {
-		return
+	if s.started.CompareAndSwap(false, true) {
+		ctx, s.cancel = context.WithCancel(ctx)
+		s.wg.Add(s.opts.poolSize)
+		for range s.opts.poolSize {
+			go s.worker(ctx)
+		}
+		log.Ctx(ctx).Info().Str("topic", s.topic).Int("pool_size", s.opts.poolSize).Msg("subscriber started")
 	}
-
-	ctx, s.cancel = context.WithCancel(ctx)
-	for i := 0; i < s.opts.poolSize; i++ {
-		s.wg.Add(1)
-		go s.worker(ctx)
-	}
-	log.Ctx(ctx).Info().Str("topic", s.topic).Int("pool_size", s.opts.poolSize).Msg("subscriber started")
 }
 
 // worker 是消费协程，持续从 channel 读取消息并调用 handler
