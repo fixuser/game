@@ -30,42 +30,55 @@ func (c *Container) Set(values ...any) {
 	}
 }
 
-// Get 从容器获取依赖并注入到目标指针中，支持同时获取多个值
-// targets 中的每一项都必须是指针类型，容器会根据指针指向的类型查找匹配的依赖
-// 支持接口匹配：Set 具体实现后，可以通过接口类型的指针 Get 获取
-func (c *Container) Get(targets ...any) error {
+// get 根据类型获取对应的值，内部封装读锁保护
+func (c *Container) get(t reflect.Type) reflect.Value {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	for _, t := range targets {
-		rv := reflect.ValueOf(t)
-		if rv.Kind() != reflect.Ptr {
-			return fmt.Errorf("boot: target must be a pointer, got %T", t)
-		}
-		elemType := rv.Elem().Type()
+	val := c.values[t]
+	if val.IsValid() {
+		return val
+	}
 
-		// 精确匹配
-		if val, ok := c.values[elemType]; ok {
-			rv.Elem().Set(val)
-			continue
-		}
-
-		// 接口匹配：目标是接口类型时，查找实现了该接口的值
-		if elemType.Kind() == reflect.Interface {
-			found := false
-			for _, val := range c.values {
-				if val.Type().Implements(elemType) {
-					rv.Elem().Set(val)
-					found = true
-					break
-				}
-			}
-			if found {
-				continue
+	if t.Kind() == reflect.Interface {
+		for k, v := range c.values {
+			if k.Implements(t) {
+				val = v
+				break
 			}
 		}
+	}
+	return val
+}
 
-		return fmt.Errorf("boot: type %s not registered", elemType)
+// Get 从容器获取依赖并注入到目标指针中，支持同时获取多个值
+// 自动解包指针层级以匹配注册的数据类型。如果目标是指针，会逐级解包直到找到匹配并赋值。
+func (c *Container) Get(targets ...any) error {
+	for _, target := range targets {
+		v := reflect.ValueOf(target)
+
+		// 保证外层传入的是指针且非 nil，否则无法正常注入(Unaddressable)
+		if v.Kind() != reflect.Ptr || v.IsNil() {
+			return fmt.Errorf("boot: target must be a non-nil pointer, got %T", target)
+		}
+
+		isSet := false
+		// 逐层解开指针寻找匹配的类型进行注入
+		for v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				break // 无法深入解包 nil 指针
+			}
+			v = v.Elem()
+			if value := c.get(v.Type()); value.IsValid() {
+				v.Set(value)
+				isSet = true
+				break
+			}
+		}
+
+		if !isSet {
+			return fmt.Errorf("boot: value not found for type: %v", reflect.TypeOf(target))
+		}
 	}
 	return nil
 }

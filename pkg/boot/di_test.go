@@ -198,3 +198,33 @@ func TestContainerInterfaceNotFound(t *testing.T) {
 		t.Fatal("expected error for unimplemented interface, got nil")
 	}
 }
+
+// TestContainerSetGetNestedPointer 测试多级指针的自动解包注入
+func TestContainerSetGetNestedPointer(t *testing.T) {
+	c := NewContainer()
+	u := testUser{Name: "Charlie", Age: 40}
+
+	// 设置的是 testUser 值类型
+	c.Set(u)
+
+	// 获取时传入 ***testUser，会自动解包查找到 testUser 并成功赋值
+	var got ***testUser
+	var ptr **testUser
+	var ptr2 *testUser = &testUser{} // 必须分配底层空间，否则无法承载值类型的注入
+
+	ptr = &ptr2
+	got = &ptr
+
+	if err := c.Get(got); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got == nil || *got == nil || **got == nil {
+		t.Fatal("expected nested pointer to be injected")
+	}
+
+	actual := ***got
+	if actual.Name != "Charlie" || actual.Age != 40 {
+		t.Fatalf("expected {Charlie 40}, got %+v", actual)
+	}
+}
