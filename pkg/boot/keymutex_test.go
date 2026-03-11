@@ -342,10 +342,13 @@ func BenchmarkSyncMutex_Compare(b *testing.B) {
 	var mu sync.Mutex
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
+		var dummy int
 		for pb.Next() {
 			mu.Lock()
+			dummy++
 			mu.Unlock()
 		}
+		_ = dummy
 	})
 }
 
@@ -357,12 +360,15 @@ func BenchmarkSyncMap_Compare(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		r := rand.New(rand.NewSource(int64(rand.Int())))
+		var dummy int
 		for pb.Next() {
 			key := r.Intn(100)
 			v, _ := m.LoadOrStore(key, &sync.Mutex{})
 			mu := v.(*sync.Mutex)
 			mu.Lock()
+			dummy++
 			mu.Unlock()
 		}
+		_ = dummy
 	})
 }

@@ -219,7 +219,7 @@ func TestContainerSetGetNestedPointer(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got == nil || *got == nil || **got == nil {
+	if *got == nil || **got == nil {
 		t.Fatal("expected nested pointer to be injected")
 	}
 
