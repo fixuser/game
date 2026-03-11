@@ -40,8 +40,8 @@ func Get(targets ...any) error {
 // ---------- PubSub 全局方法 ----------
 
 // Publish 向指定 topic 发布消息
-func Publish(ctx context.Context, topic string, args ...any) {
-	GetBoot().Publish(ctx, topic, args...)
+func Publish(ctx context.Context, topic string, args ...any) error {
+	return GetBoot().Publish(ctx, topic, args...)
 }
 
 // Subscribe 订阅指定 topic 的消息

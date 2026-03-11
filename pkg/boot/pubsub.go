@@ -2,11 +2,17 @@ package boot
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"sync"
 	"sync/atomic"
 
 	"github.com/rs/zerolog/log"
+)
+
+var (
+	// ErrPubSubClosed 表示 PubSub 已关闭，无法发布消息
+	ErrPubSubClosed = errors.New("boot: pubsub closed")
 )
 
 // subOptions 是订阅配置项
@@ -68,6 +74,7 @@ type PubSub struct {
 	topics   map[string]*topicEntry
 	defaults subOptions
 	exitCh   chan struct{}
+	closed   atomic.Bool
 }
 
 // NewPubSub 创建发布订阅管理器，可传入全局默认配置
@@ -104,18 +111,16 @@ func (ps *PubSub) getOrCreateTopic(topic string) *topicEntry {
 
 // Publish 向指定 topic 发布消息，所有参数通过反射传递给订阅者的 handler
 // 当 channel 满时会阻塞，直到有空间或 ctx 被取消或 PubSub 已关闭
-func (ps *PubSub) Publish(ctx context.Context, topic string, args ...any) {
-	select {
-	case <-ps.exitCh:
-		return
-	default:
+func (ps *PubSub) Publish(ctx context.Context, topic string, args ...any) error {
+	if ps.closed.Load() {
+		return ErrPubSubClosed
 	}
 
 	ps.mu.RLock()
 	entry, ok := ps.topics[topic]
 	ps.mu.RUnlock()
 	if !ok {
-		return
+		return nil
 	}
 
 	vals := make([]reflect.Value, len(args))
@@ -127,10 +132,13 @@ func (ps *PubSub) Publish(ctx context.Context, topic string, args ...any) {
 	for _, sub := range entry.subscribers() {
 		select {
 		case sub.ch <- msg:
+		case <-ps.exitCh:
+			return ErrPubSubClosed
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		}
 	}
+	return nil
 }
 
 // Subscribe 创建并注册一个订阅者，handler 必须是函数类型
@@ -165,18 +173,20 @@ func (ps *PubSub) Subscribe(topic string, handler any, opts ...SubOption) *Subsc
 
 // Close 关闭 PubSub，停止接收新消息并等待所有 worker 退出
 func (ps *PubSub) Close() {
-	close(ps.exitCh)
+	if ps.closed.CompareAndSwap(false, true) {
+		close(ps.exitCh)
 
-	ps.mu.RLock()
-	entries := make([]*topicEntry, 0, len(ps.topics))
-	for _, entry := range ps.topics {
-		entries = append(entries, entry)
-	}
-	ps.mu.RUnlock()
+		ps.mu.RLock()
+		entries := make([]*topicEntry, 0, len(ps.topics))
+		for _, entry := range ps.topics {
+			entries = append(entries, entry)
+		}
+		ps.mu.RUnlock()
 
-	for _, entry := range entries {
-		for _, sub := range entry.subscribers() {
-			sub.Stop()
+		for _, entry := range entries {
+			for _, sub := range entry.subscribers() {
+				sub.Stop()
+			}
 		}
 	}
 }
