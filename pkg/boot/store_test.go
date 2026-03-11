@@ -1,10 +1,12 @@
 package boot
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/uptrace/bun"
 )
 
 // ---------- Store[T] 通用测试 ----------
@@ -170,18 +172,17 @@ func TestStoreLen(t *testing.T) {
 	}
 }
 
-// TestStoreRange 测试 Range 遍历所有实例
-func TestStoreRange(t *testing.T) {
+// TestStoreItems 测试 Items 迭代器遍历所有实例
+func TestStoreItems(t *testing.T) {
 	s := NewStore[string]()
 	s.Set("a", "1")
 	s.Set("b", "2")
 	s.Set("c", "3")
 
 	visited := make(map[string]string)
-	s.Range(func(name string, value string) bool {
+	for name, value := range s.Items() {
 		visited[name] = value
-		return true
-	})
+	}
 
 	if len(visited) != 3 {
 		t.Fatalf("expected 3 visited, got %d", len(visited))
@@ -193,21 +194,21 @@ func TestStoreRange(t *testing.T) {
 	}
 }
 
-// TestStoreRangeEarlyStop 测试 Range 回调返回 false 提前停止
-func TestStoreRangeEarlyStop(t *testing.T) {
+// TestStoreItemsBreak 测试 Items 迭代器 break 提前停止
+func TestStoreItemsBreak(t *testing.T) {
 	s := NewStore[string]()
 	s.Set("a", "1")
 	s.Set("b", "2")
 	s.Set("c", "3")
 
 	count := 0
-	s.Range(func(name string, value string) bool {
+	for range s.Items() {
 		count++
-		return false // 第一次就停止
-	})
+		break // 第一次就停止
+	}
 
 	if count != 1 {
-		t.Fatalf("expected 1 visit (early stop), got %d", count)
+		t.Fatalf("expected 1 visit (break), got %d", count)
 	}
 }
 
@@ -340,5 +341,237 @@ func TestRedisStoreDefault(t *testing.T) {
 	got := rs.Default()
 	if got.(*mockUniversalClient).id != "user-0" {
 		t.Fatalf("expected default id 'user-0', got '%s'", got.(*mockUniversalClient).id)
+	}
+}
+
+// ---------- DbStore 测试 ----------
+
+// mockIDB 是一个最小化的 bun.IDB mock，用于区分不同数据库实例
+type mockIDB struct {
+	bun.IDB
+	id string
+}
+
+// TestDbStoreSetAndGet 测试基本的 Set/Get 存取
+func TestDbStoreSetAndGet(t *testing.T) {
+	ds := NewDbStore()
+	ds.Set("user", &mockIDB{id: "user-db"})
+	ds.Set("order", &mockIDB{id: "order-db"})
+
+	got, ok := ds.Get("user")
+	if !ok {
+		t.Fatal("expected to find 'user', got not found")
+	}
+	if got.(*mockIDB).id != "user-db" {
+		t.Fatalf("expected id 'user-db', got '%s'", got.(*mockIDB).id)
+	}
+
+	got, ok = ds.Get("order")
+	if !ok {
+		t.Fatal("expected to find 'order', got not found")
+	}
+	if got.(*mockIDB).id != "order-db" {
+		t.Fatalf("expected id 'order-db', got '%s'", got.(*mockIDB).id)
+	}
+}
+
+// TestDbStoreGetNotFound 测试获取不存在的 name 返回 false
+func TestDbStoreGetNotFound(t *testing.T) {
+	ds := NewDbStore()
+	ds.Set("user", &mockIDB{id: "user-db"})
+
+	_, ok := ds.Get("nonexistent")
+	if ok {
+		t.Fatal("expected not found for 'nonexistent', got found")
+	}
+}
+
+// TestDbStoreMustGetPanic 测试 MustGet 不存在时 panic
+func TestDbStoreMustGetPanic(t *testing.T) {
+	ds := NewDbStore()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for MustGet on non-existent key")
+		}
+	}()
+	ds.MustGet("nonexistent")
+}
+
+// TestDbStoreMustGetSuccess 测试 MustGet 存在时正常返回
+func TestDbStoreMustGetSuccess(t *testing.T) {
+	ds := NewDbStore()
+	ds.Set("user", &mockIDB{id: "user-db"})
+
+	got := ds.MustGet("user")
+	if got.(*mockIDB).id != "user-db" {
+		t.Fatalf("expected id 'user-db', got '%s'", got.(*mockIDB).id)
+	}
+}
+
+// TestDbStoreDefaultAutoSet 测试首次 Set 自动成为默认实例
+func TestDbStoreDefaultAutoSet(t *testing.T) {
+	ds := NewDbStore()
+	ds.Set("first", &mockIDB{id: "first-db"})
+	ds.Set("second", &mockIDB{id: "second-db"})
+
+	got := ds.Default()
+	if got.(*mockIDB).id != "first-db" {
+		t.Fatalf("expected default to be 'first-db', got '%s'", got.(*mockIDB).id)
+	}
+}
+
+// TestDbStoreDefaultExplicit 测试通过构造函数指定默认 name
+func TestDbStoreDefaultExplicit(t *testing.T) {
+	ds := NewDbStore("order")
+	ds.Set("user", &mockIDB{id: "user-db"})
+	ds.Set("order", &mockIDB{id: "order-db"})
+
+	got := ds.Default()
+	if got.(*mockIDB).id != "order-db" {
+		t.Fatalf("expected default to be 'order-db', got '%s'", got.(*mockIDB).id)
+	}
+}
+
+// TestDbStoreSetDefault 测试调用 SetDefault 更改默认实例
+func TestDbStoreSetDefault(t *testing.T) {
+	ds := NewDbStore()
+	ds.Set("user", &mockIDB{id: "user-db"})
+	ds.Set("order", &mockIDB{id: "order-db"})
+
+	if got := ds.Default(); got.(*mockIDB).id != "user-db" {
+		t.Fatalf("expected default 'user-db', got '%s'", got.(*mockIDB).id)
+	}
+
+	ds.SetDefault("order")
+	if got := ds.Default(); got.(*mockIDB).id != "order-db" {
+		t.Fatalf("expected default 'order-db', got '%s'", got.(*mockIDB).id)
+	}
+}
+
+// TestDbStoreDefaultPanicIfEmpty 测试空容器调用 Default() 时 panic
+func TestDbStoreDefaultPanicIfEmpty(t *testing.T) {
+	ds := NewDbStore()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for Default on empty store")
+		}
+	}()
+	ds.Default()
+}
+
+// TestDbStoreOverwrite 测试重复 Set 同名 key 覆盖旧值
+func TestDbStoreOverwrite(t *testing.T) {
+	ds := NewDbStore()
+	ds.Set("user", &mockIDB{id: "old-db"})
+	ds.Set("user", &mockIDB{id: "new-db"})
+
+	got := ds.MustGet("user")
+	if got.(*mockIDB).id != "new-db" {
+		t.Fatalf("expected 'new-db' (overwritten), got '%s'", got.(*mockIDB).id)
+	}
+}
+
+// TestDbStoreNames 测试 Names() 返回所有已注册 name（排序后）
+func TestDbStoreNames(t *testing.T) {
+	ds := NewDbStore()
+	ds.Set("order", &mockIDB{id: "order-db"})
+	ds.Set("user", &mockIDB{id: "user-db"})
+	ds.Set("admin", &mockIDB{id: "admin-db"})
+
+	names := ds.Names()
+	expected := []string{"admin", "order", "user"}
+	if len(names) != len(expected) {
+		t.Fatalf("expected %d names, got %d", len(expected), len(names))
+	}
+	for i, name := range names {
+		if name != expected[i] {
+			t.Fatalf("expected names[%d] = '%s', got '%s'", i, expected[i], name)
+		}
+	}
+}
+
+// TestDbStoreLen 测试 Len() 返回正确的数量
+func TestDbStoreLen(t *testing.T) {
+	ds := NewDbStore()
+	if ds.Len() != 0 {
+		t.Fatalf("expected len 0, got %d", ds.Len())
+	}
+
+	ds.Set("a", &mockIDB{id: "a"})
+	ds.Set("b", &mockIDB{id: "b"})
+	ds.Set("c", &mockIDB{id: "c"})
+	if ds.Len() != 3 {
+		t.Fatalf("expected len 3, got %d", ds.Len())
+	}
+
+	// 覆盖不增加数量
+	ds.Set("a", &mockIDB{id: "a2"})
+	if ds.Len() != 3 {
+		t.Fatalf("expected len 3 after overwrite, got %d", ds.Len())
+	}
+}
+
+// TestDbStoreItems 测试 Items 迭代器遍历所有实例
+func TestDbStoreItems(t *testing.T) {
+	ds := NewDbStore()
+	ds.Set("a", &mockIDB{id: "a"})
+	ds.Set("b", &mockIDB{id: "b"})
+	ds.Set("c", &mockIDB{id: "c"})
+
+	visited := make(map[string]string)
+	for name, value := range ds.Items() {
+		visited[name] = value.(*mockIDB).id
+	}
+
+	if len(visited) != 3 {
+		t.Fatalf("expected 3 visited, got %d", len(visited))
+	}
+}
+
+// TestDbStoreItemsBreak 测试 Items 迭代器 break 提前停止
+func TestDbStoreItemsBreak(t *testing.T) {
+	ds := NewDbStore()
+	ds.Set("a", &mockIDB{id: "a"})
+	ds.Set("b", &mockIDB{id: "b"})
+	ds.Set("c", &mockIDB{id: "c"})
+
+	count := 0
+	for range ds.Items() {
+		count++
+		break
+	}
+
+	if count != 1 {
+		t.Fatalf("expected 1 visit (break), got %d", count)
+	}
+}
+
+// TestDbStoreConcurrent 测试并发读写安全性
+func TestDbStoreConcurrent(t *testing.T) {
+	ds := NewDbStore()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			ds.Set("key", &mockIDB{id: fmt.Sprintf("db-%d", n)})
+		}(i)
+	}
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ds.Get("key")
+			ds.Len()
+			ds.Names()
+		}()
+	}
+
+	wg.Wait()
+
+	if ds.Len() != 1 {
+		t.Fatalf("expected len 1, got %d", ds.Len())
 	}
 }
