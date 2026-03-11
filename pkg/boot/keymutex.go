@@ -1,4 +1,4 @@
-package keymutex
+package boot
 
 import (
 	"context"
