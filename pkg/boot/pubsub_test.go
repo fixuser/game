@@ -308,3 +308,54 @@ func TestPubSubHandlerNotFunc(t *testing.T) {
 	}()
 	ps.Subscribe("bad", "not_a_function")
 }
+
+// TestPubSubTryPublish 测试 TryPublish，遇到阻塞的 channel 时不阻塞
+func TestPubSubTryPublish(t *testing.T) {
+	ps := NewPubSub()
+	var count atomic.Int64
+
+	// 用于让测试等待某条消息开始执行
+	startedCh := make(chan struct{})
+	// 用于阻塞 worker 处理消息
+	blockCh := make(chan struct{})
+
+	// 设置 queueSize 为 0，确保无缓存时能立刻测试出效果
+	sub := ps.Subscribe("try", func(v int) {
+		count.Add(1)
+		// 通知测试已开始处理第一个消息
+		if v == 1 {
+			close(startedCh)
+		}
+		// 阻塞住，不让处理结束
+		<-blockCh
+	}, WithQueueSize(0), WithPoolSize(1))
+
+	sub.Start(context.Background())
+
+	// 第一个消息，用独立的 goroutine 发送，以防 queueSize=0 时 Publish 阻塞测试主协程
+	go func() {
+		// Publish 会阻塞，直到 worker 取出消息
+		_ = ps.Publish(context.Background(), "try", 1)
+	}()
+
+	// 等待 worker 拿到第一条消息并开始处理，此时 worker 阻塞在 blockCh
+	<-startedCh
+
+	// 此时尝试用 TryPublish 发第二个消息，因为 queueSize=0 且 worker 繁忙，必定触发 default
+	err2 := ps.TryPublish(context.Background(), "try", 2)
+	if err2 != nil {
+		t.Fatalf("TryPublish returned error: %v", err2)
+	}
+
+	// 释放 blockCh，让第一个消息处理结束
+	close(blockCh)
+
+	// 给点时间确保没有其他东西被处理
+	time.Sleep(50 * time.Millisecond)
+
+	// 总消费数应当为 1，因为第二个通过 TryPublish 发现阻塞被直接遗弃了
+	if count.Load() != 1 {
+		t.Fatalf("expected 1 successful consume, but got %d", count.Load())
+	}
+	ps.Close()
+}

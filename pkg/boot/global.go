@@ -44,6 +44,12 @@ func Publish(ctx context.Context, topic string, args ...any) error {
 	return GetBoot().Publish(ctx, topic, args...)
 }
 
+// TryPublish 向指定 topic 发布消息，所有参数通过反射传递给订阅者的 handler
+// 当某个订阅者的 channel 满时会直接跳过该订阅者，不会阻塞
+func TryPublish(ctx context.Context, topic string, args ...any) error {
+	return GetBoot().TryPublish(ctx, topic, args...)
+}
+
 // Subscribe 订阅指定 topic 的消息
 func Subscribe(topic string, handler any, opts ...SubOption) *Subscriber {
 	return GetBoot().Subscribe(topic, handler, opts...)

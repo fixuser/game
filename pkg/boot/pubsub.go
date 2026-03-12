@@ -141,6 +141,40 @@ func (ps *PubSub) Publish(ctx context.Context, topic string, args ...any) error 
 	return nil
 }
 
+// TryPublish 向指定 topic 发布消息，所有参数通过反射传递给订阅者的 handler
+// 当某个订阅者的 channel 满时会直接跳过该订阅者，不会阻塞
+func (ps *PubSub) TryPublish(ctx context.Context, topic string, args ...any) error {
+	if ps.closed.Load() {
+		return ErrPubSubClosed
+	}
+
+	ps.mu.RLock()
+	entry, ok := ps.topics[topic]
+	ps.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+
+	vals := make([]reflect.Value, len(args))
+	for i, a := range args {
+		vals[i] = reflect.ValueOf(a)
+	}
+	msg := &message{ctx: ctx, args: vals}
+
+	for _, sub := range entry.subscribers() {
+		select {
+		case sub.ch <- msg:
+		case <-ps.exitCh:
+			return ErrPubSubClosed
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			// 阻塞时立即尝试下一个，不等待
+		}
+	}
+	return nil
+}
+
 // Subscribe 创建并注册一个订阅者，handler 必须是函数类型
 // 配置项会合并全局默认值和局部 opts，局部优先
 func (ps *PubSub) Subscribe(topic string, handler any, opts ...SubOption) *Subscriber {
