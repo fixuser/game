@@ -12,7 +12,7 @@ type Boot struct {
 func NewBoot() *Boot {
 	return &Boot{
 		Container: NewContainer(),
-		PubSub:    NewPubSub(),
+		PubSub:    NewPubSub(WithRecovery()),
 		Lifecycle: NewLifecycle(),
 	}
 }
