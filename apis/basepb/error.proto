@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+option go_package = "github.com/game/game/apis/basepb";
+
+package basepb;
+
+
+// Error 错误信息
+message Error {
+  uint32 code = 1;
+  string message = 2;
+}
+
+// Code 错误码
+enum Code {
+  CODE_UNSPECIFIED = 0;
+
+  // 通用错误码
+  CODE_NOT_FOUND = 11001; // 路径不存在
+  CODE_METHOD_NOT_ALLOWED = 11002; // 方法不允许
+  CODE_INTERNAL_SERVER = 11003; // 服务器内部错误
+  CODE_UNAUTHORIZED = 11004; // 未授权
+  CODE_WAIT_OTP = 11005; // 等待OTP
+  CODE_FORBIDDEN = 11006; // 禁止访问
+  CODE_RATE_LIMIT = 11007; // 限流
+  CODE_ILLEGAL_ACCESS = 11008; // 非法访问
+  CODE_DATABASE = 11009; // 数据库错误
+  CODE_MAINTENANCE = 11010; // 系统维护中
+  CODE_ARGUMENT = 11011; // 参数错误
+}
