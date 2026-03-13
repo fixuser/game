@@ -10,10 +10,10 @@ type Enum interface {
 // Tag 用于位运算的标签类型，每一位代表一个标志
 type Tag int64
 
-// Has 检测 tag 是否同时包含所有指定的 flags（AND 语义）
+// HasAll 检测 tag 是否同时包含所有指定的 flags（AND 语义）
 //
-//	boot.Has(tags, UserTag_VIP, UserTag_ADMIN) // VIP 和 ADMIN 都存在才返回 true
-func Has[E Enum](tag Tag, flags ...E) bool {
+//	tag.HasAll(tags, UserTag_VIP, UserTag_ADMIN) // VIP 和 ADMIN 都存在才返回 true
+func HasAll[E Enum](tag Tag, flags ...E) bool {
 	var mask Tag
 	for _, f := range flags {
 		mask |= Tag(f)
@@ -23,7 +23,7 @@ func Has[E Enum](tag Tag, flags ...E) bool {
 
 // HasAny 检测 tag 是否包含任意一个指定的 flags（OR 语义）
 //
-//	boot.HasAny(tags, UserTag_VIP, UserTag_BANNED) // VIP 或 BANNED 任一存在即返回 true
+//	tag.HasAny(tags, UserTag_VIP, UserTag_BANNED) // VIP 或 BANNED 任一存在即返回 true
 func HasAny[E Enum](tag Tag, flags ...E) bool {
 	var mask Tag
 	for _, f := range flags {

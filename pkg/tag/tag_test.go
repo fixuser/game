@@ -44,23 +44,23 @@ func TestSetIdempotent(t *testing.T) {
 	}
 }
 
-func TestHas(t *testing.T) {
+func TestHasAll(t *testing.T) {
 	tags := Set(Tag(0), mockTag_VIP, mockTag_ADMIN)
 
-	if !Has(tags, mockTag_VIP) {
-		t.Fatal("expected Has(VIP) = true")
+	if !HasAll(tags, mockTag_VIP) {
+		t.Fatal("expected HasAll(VIP) = true")
 	}
-	if !Has(tags, mockTag_ADMIN) {
-		t.Fatal("expected Has(ADMIN) = true")
+	if !HasAll(tags, mockTag_ADMIN) {
+		t.Fatal("expected HasAll(ADMIN) = true")
 	}
-	if !Has(tags, mockTag_VIP, mockTag_ADMIN) {
-		t.Fatal("expected Has(VIP, ADMIN) = true")
+	if !HasAll(tags, mockTag_VIP, mockTag_ADMIN) {
+		t.Fatal("expected HasAll(VIP, ADMIN) = true")
 	}
-	if Has(tags, mockTag_VIP, mockTag_BANNED) {
-		t.Fatal("expected Has(VIP, BANNED) = false")
+	if HasAll(tags, mockTag_VIP, mockTag_BANNED) {
+		t.Fatal("expected HasAll(VIP, BANNED) = false")
 	}
-	if Has(tags, mockTag_BANNED) {
-		t.Fatal("expected Has(BANNED) = false")
+	if HasAll(tags, mockTag_BANNED) {
+		t.Fatal("expected HasAll(BANNED) = false")
 	}
 }
 
@@ -82,10 +82,10 @@ func TestUnset(t *testing.T) {
 	tags := Set(Tag(0), mockTag_VIP, mockTag_ADMIN, mockTag_BANNED)
 
 	tags = Unset(tags, mockTag_ADMIN)
-	if Has(tags, mockTag_ADMIN) {
+	if HasAll(tags, mockTag_ADMIN) {
 		t.Fatal("expected ADMIN to be unset")
 	}
-	if !Has(tags, mockTag_VIP, mockTag_BANNED) {
+	if !HasAll(tags, mockTag_VIP, mockTag_BANNED) {
 		t.Fatal("expected VIP and BANNED to remain")
 	}
 }
@@ -113,10 +113,10 @@ func TestToggle(t *testing.T) {
 
 	// 切换：VIP 已存在 → 清除，ADMIN 不存在 → 设置
 	tags = Toggle(tags, mockTag_VIP, mockTag_ADMIN)
-	if Has(tags, mockTag_VIP) {
+	if HasAll(tags, mockTag_VIP) {
 		t.Fatal("expected VIP to be toggled off")
 	}
-	if !Has(tags, mockTag_ADMIN) {
+	if !HasAll(tags, mockTag_ADMIN) {
 		t.Fatal("expected ADMIN to be toggled on")
 	}
 }
@@ -126,7 +126,7 @@ func TestToggleTwice(t *testing.T) {
 	tags = Toggle(tags, mockTag_VIP)
 	tags = Toggle(tags, mockTag_VIP)
 
-	if !Has(tags, mockTag_VIP) {
+	if !HasAll(tags, mockTag_VIP) {
 		t.Fatal("expected VIP to be restored after double toggle")
 	}
 }
@@ -182,7 +182,7 @@ func TestHasEmptyFlags(t *testing.T) {
 	tags := Set(Tag(0), mockTag_VIP)
 
 	// 空 flags 的 mask = 0，tag & 0 == 0 恒成立
-	if !Has[mockTag](tags) {
+	if !HasAll[mockTag](tags) {
 		t.Fatal("expected Has with no flags = true")
 	}
 }
@@ -218,10 +218,10 @@ func TestCombinedOperations(t *testing.T) {
 	}
 
 	// 最终状态：VIP + BANNED
-	if !Has(tags, mockTag_VIP, mockTag_BANNED) {
+	if !HasAll(tags, mockTag_VIP, mockTag_BANNED) {
 		t.Fatal("expected VIP and BANNED")
 	}
-	if Has(tags, mockTag_ADMIN) {
+	if HasAll(tags, mockTag_ADMIN) {
 		t.Fatal("expected ADMIN to be removed")
 	}
 	if tags.Count() != 2 {
