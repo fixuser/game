@@ -134,12 +134,7 @@ func (ml *MultiKeyLocker[T]) Unlock(ctx context.Context) {
 // lessComparable 通过内存表示比较两个 comparable 值，用于固定排序顺序
 func lessComparable[T comparable](a, b T) bool {
 	sa := unsafe.Sizeof(a)
-	pa := (*[64]byte)(unsafe.Pointer(&a))
-	pb := (*[64]byte)(unsafe.Pointer(&b))
-	for i := uintptr(0); i < sa; i++ {
-		if pa[i] != pb[i] {
-			return pa[i] < pb[i]
-		}
-	}
-	return false
+	pa := unsafe.String((*byte)(unsafe.Pointer(&a)), sa)
+	pb := unsafe.String((*byte)(unsafe.Pointer(&b)), sa)
+	return pa < pb
 }
