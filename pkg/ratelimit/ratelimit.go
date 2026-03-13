@@ -34,22 +34,21 @@ func resolveMetaKey(key string) string {
 
 // Rule 是限速规则的配置结构，存储在 Redis Hash 中
 type Rule struct {
-	Name     string   `json:"name"`     // 规则名称（Hash field key，同名覆盖）
-	Key      string   `json:"key"`      // 限速标识，如 "ip"、"device_id"、"token"
-	Path     string   `json:"path"`     // 路径匹配，支持精确匹配或正则
-	Methods  []string `json:"methods"`  // HTTP 方法过滤，为空匹配所有
-	Total    int64    `json:"total"`    // 时间窗口内允许的总请求数
-	Duration string   `json:"duration"` // 时间窗口，如 "1m"、"1h"、"1h30m"
+	Name     string        `json:"name"`     // 规则名称（Hash field key，同名覆盖）
+	Key      string        `json:"key"`      // 限速标识，如 "ip"、"device_id"、"token"
+	Path     string        `json:"path"`     // 路径匹配，支持精确匹配或正则
+	Methods  []string      `json:"methods"`  // HTTP 方法过滤，为空匹配所有
+	Total    int64         `json:"total"`    // 时间窗口内允许的总请求数
+	Duration time.Duration `json:"duration"` // 时间窗口，如 time.Minute, 2*time.Hour
 }
 
-// compiledRule 是 Rule 编译后的内部结构，包含解析后的正则和 Duration
+// compiledRule 是 Rule 编译后的内部结构，包含解析后的正则
 type compiledRule struct {
 	Rule
-	metaKey  string         // 解析后的完整 meta key
-	re       *regexp.Regexp // 编译后的正则（如果不是精确匹配）
-	exact    bool           // 是否是精确路径匹配（无正则特殊字符）
-	duration time.Duration  // 解析后的时间窗口
-	methods  map[string]struct{}
+	metaKey string         // 解析后的完整 meta key
+	re      *regexp.Regexp // 编译后的正则（如果不是精确匹配）
+	exact   bool           // 是否是精确路径匹配（无正则特殊字符）
+	methods map[string]struct{}
 }
 
 // matchPath 检查请求路径是否匹配该规则，精确匹配优先
@@ -71,16 +70,10 @@ func (cr *compiledRule) matchMethod(method string) bool {
 
 // compileRule 将 Rule 编译为 compiledRule
 func compileRule(r Rule) (*compiledRule, error) {
-	dur, err := time.ParseDuration(r.Duration)
-	if err != nil {
-		return nil, fmt.Errorf("ratelimit: invalid duration %q in rule %q: %w", r.Duration, r.Name, err)
-	}
-
 	cr := &compiledRule{
-		Rule:     r,
-		metaKey:  resolveMetaKey(r.Key),
-		duration: dur,
-		methods:  make(map[string]struct{}, len(r.Methods)),
+		Rule:    r,
+		metaKey: resolveMetaKey(r.Key),
+		methods: make(map[string]struct{}, len(r.Methods)),
 	}
 
 	for _, m := range r.Methods {
@@ -117,17 +110,19 @@ type Quota struct {
 	Allowed   bool  // 是否放行
 	Remaining int64 // 最严格规则的剩余次数
 	Total     int64 // 最严格规则的总限额
-	ResetAt   int64 // 最严格规则的重置时间（Unix 秒）
+	Reset     int64 // 最严格规则的剩余秒数（类似 TTL）
 }
 
 // luaIncrExpire 是原子性递增计数器并设置过期时间的 Lua 脚本
 // KEYS[1] = counter key, ARGV[1] = duration seconds
+// 返回：{current, ttl}
 const luaIncrExpire = `
 local current = redis.call('INCR', KEYS[1])
 if current == 1 then
     redis.call('EXPIRE', KEYS[1], ARGV[1])
 end
-return current
+local ttl = redis.call('TTL', KEYS[1])
+return {current, ttl}
 `
 
 // options 是 RateLimiter 的配置项
@@ -274,9 +269,15 @@ func (rl *RateLimiter) DeleteRule(ctx context.Context, name string) error {
 	return rl.LoadRules(ctx)
 }
 
+// 筛选匹配的规则并获取对应的 key value
+type matchedRule struct {
+	rule     compiledRule
+	keyValue string
+}
+
 // Allow 执行限速检查，遍历所有匹配的规则并返回最严格的结果
 // 从 ctx 中自动提取 path、method 和各规则的限速标识
-func (rl *RateLimiter) Allow(ctx context.Context) *Quota {
+func (rl *RateLimiter) Allow(ctx context.Context) (quota *Quota) {
 	m := meta.FromContext(ctx)
 	path := m.GetString(meta.MetaRequestPath)
 	method := m.GetString(meta.MetaRequestMethod)
@@ -286,13 +287,7 @@ func (rl *RateLimiter) Allow(ctx context.Context) *Quota {
 	copy(rules, rl.rules)
 	rl.mu.RUnlock()
 
-	// 筛选匹配的规则并获取对应的 key value
-	type matchedRule struct {
-		rule     compiledRule
-		keyValue string
-	}
-
-	var matched []matchedRule
+	matched := make([]matchedRule, 0, 2)
 	for _, cr := range rules {
 		if !cr.matchPath(path) || !cr.matchMethod(method) {
 			continue
@@ -305,34 +300,32 @@ func (rl *RateLimiter) Allow(ctx context.Context) *Quota {
 	}
 
 	// 无匹配规则，直接放行
+	quota = &Quota{Allowed: true, Remaining: -1}
 	if len(matched) == 0 {
-		return &Quota{Allowed: true, Remaining: -1}
+		return
 	}
 
 	// 逐条执行 Lua 脚本（每条独立 EVAL，保证原子性）
-	now := time.Now().Unix()
-	quota := &Quota{Allowed: true, Remaining: -1}
 	first := true
-
 	for _, m := range matched {
 		counterKey := fmt.Sprintf("%s:counter:%s:%s:%s:%s",
 			rl.opt.prefix, m.keyValue, method, path, m.rule.Name)
-		durSec := int64(m.rule.duration.Seconds())
+		durSec := int64(m.rule.Duration.Seconds())
 
-		val, err := rl.rdb.Eval(ctx, luaIncrExpire, []string{counterKey}, durSec).Int64()
-		if err != nil {
+		vals, err := rl.rdb.Eval(ctx, luaIncrExpire, []string{counterKey}, durSec).Int64Slice()
+		if err != nil || len(vals) < 2 {
 			log.Ctx(ctx).Warn().Err(err).Str("rule", m.rule.Name).Msg("ratelimit: eval counter failed")
 			continue
 		}
 
-		remaining := m.rule.Total - val
-		resetAt := now + int64(m.rule.duration.Seconds())
+		current, ttl := vals[0], vals[1]
+		remaining := m.rule.Total - current
 
 		// 取剩余最少的（最严格的）规则
 		if first || remaining < quota.Remaining {
 			quota.Remaining = remaining
 			quota.Total = m.rule.Total
-			quota.ResetAt = resetAt
+			quota.Reset = ttl
 			first = false
 		}
 
@@ -341,5 +334,5 @@ func (rl *RateLimiter) Allow(ctx context.Context) *Quota {
 		}
 	}
 
-	return quota
+	return
 }

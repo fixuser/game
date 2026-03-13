@@ -51,7 +51,7 @@ func TestBasicRateLimit(t *testing.T) {
 		Key:      "ip",
 		Path:     "/api/test",
 		Total:    3,
-		Duration: "1m",
+		Duration: time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("set rule failed: %v", err)
@@ -85,12 +85,12 @@ func TestMultipleRulesStrictest(t *testing.T) {
 	// 宽松规则：10次/分钟
 	rl.SetRule(context.Background(), Rule{
 		Name: "loose", Key: "ip", Path: "/api/.*",
-		Total: 10, Duration: "1m",
+		Total: 10, Duration: time.Minute,
 	})
 	// 严格规则：2次/分钟
 	rl.SetRule(context.Background(), Rule{
 		Name: "strict", Key: "ip", Path: "/api/.*",
-		Total: 2, Duration: "1m",
+		Total: 2, Duration: time.Minute,
 	})
 
 	ctx := buildCtx("/api/test", "GET", meta.MetaUserIp, "1.2.3.4")
@@ -120,7 +120,7 @@ func TestPathRegex(t *testing.T) {
 
 	rl.SetRule(context.Background(), Rule{
 		Name: "v1", Key: "ip", Path: "/v1/.*",
-		Total: 1, Duration: "1m",
+		Total: 1, Duration: time.Minute,
 	})
 
 	// 匹配的路径
@@ -145,7 +145,7 @@ func TestExactPathMatch(t *testing.T) {
 
 	rl.SetRule(context.Background(), Rule{
 		Name: "exact", Key: "ip", Path: "/api/login",
-		Total: 1, Duration: "1m",
+		Total: 1, Duration: time.Minute,
 	})
 
 	// 精确匹配
@@ -170,7 +170,7 @@ func TestMethodFilter(t *testing.T) {
 
 	rl.SetRule(context.Background(), Rule{
 		Name: "post_only", Key: "ip", Path: "/api/.*",
-		Methods: []string{"POST"}, Total: 1, Duration: "1m",
+		Methods: []string{"POST"}, Total: 1, Duration: time.Minute,
 	})
 
 	// POST 应被限速
@@ -199,7 +199,7 @@ func TestEmptyMethodsMatchAll(t *testing.T) {
 
 	rl.SetRule(context.Background(), Rule{
 		Name: "all_methods", Key: "ip", Path: "/api/.*",
-		Total: 2, Duration: "1m",
+		Total: 2, Duration: time.Minute,
 	})
 
 	ctx1 := buildCtx("/api/test", "GET", meta.MetaUserIp, "1.2.3.4")
@@ -220,7 +220,7 @@ func TestMetaKeyExtract(t *testing.T) {
 
 	rl.SetRule(context.Background(), Rule{
 		Name: "by_device", Key: "device_id", Path: "/api/.*",
-		Total: 1, Duration: "1m",
+		Total: 1, Duration: time.Minute,
 	})
 
 	ctx := buildCtx("/api/test", "GET", meta.MetaDeviceId, "device-abc")
@@ -259,7 +259,7 @@ func TestSetDeleteRule(t *testing.T) {
 	// 添加规则
 	rl.SetRule(context.Background(), Rule{
 		Name: "temp", Key: "ip", Path: "/api/test",
-		Total: 1, Duration: "1m",
+		Total: 1, Duration: time.Minute,
 	})
 
 	r2 := rl.Allow(ctx)
@@ -286,7 +286,7 @@ func TestEmptyKeySkip(t *testing.T) {
 
 	rl.SetRule(context.Background(), Rule{
 		Name: "token_limit", Key: "token", Path: "/api/.*",
-		Total: 1, Duration: "1m",
+		Total: 1, Duration: time.Minute,
 	})
 
 	// ctx 中没有 token，应跳过规则直接放行
@@ -307,7 +307,7 @@ func TestDurationReset(t *testing.T) {
 
 	rl.SetRule(context.Background(), Rule{
 		Name: "quick", Key: "ip", Path: "/api/test",
-		Total: 1, Duration: "10s",
+		Total: 1, Duration: 10 * time.Second,
 	})
 
 	ctx := buildCtx("/api/test", "GET", meta.MetaUserIp, "1.2.3.4")
@@ -341,7 +341,7 @@ func TestQuotaHeaders(t *testing.T) {
 
 	rl.SetRule(context.Background(), Rule{
 		Name: "header_test", Key: "ip", Path: "/api/test",
-		Total: 5, Duration: "1m",
+		Total: 5, Duration: time.Minute,
 	})
 
 	ctx := buildCtx("/api/test", "GET", meta.MetaUserIp, "1.2.3.4")
@@ -353,12 +353,46 @@ func TestQuotaHeaders(t *testing.T) {
 	if r.Remaining != 4 {
 		t.Fatalf("expected remaining=4, got=%d", r.Remaining)
 	}
-	if r.ResetAt == 0 {
-		t.Fatal("reset_at should be set")
+	if r.Reset <= 0 {
+		t.Fatal("reset should be > 0")
 	}
 }
 
-// TestResolveMetaKey 测试 key 映射
+// TestResetTtlDecay 测试 Reset 随时间推移递减（类似 TTL 倒计时）
+func TestResetTtlDecay(t *testing.T) {
+	mr, rdb := newTestRedis(t)
+	rl := newTestLimiter(t, rdb)
+
+	rl.SetRule(context.Background(), Rule{
+		Name: "ttl_test", Key: "ip", Path: "/api/test",
+		Total: 10, Duration: 30 * time.Second,
+	})
+
+	ctx := buildCtx("/api/test", "GET", meta.MetaUserIp, "1.2.3.4")
+
+	// 第一次请求，Reset 应接近 30 秒
+	r1 := rl.Allow(ctx)
+	if !r1.Allowed {
+		t.Fatal("should be allowed")
+	}
+	if r1.Reset < 28 || r1.Reset > 30 {
+		t.Fatalf("expected reset ~30, got=%d", r1.Reset)
+	}
+
+	// 快进 10 秒，Reset 应减少约 10 秒
+	mr.FastForward(10 * time.Second)
+	r2 := rl.Allow(ctx)
+	if r2.Reset < 18 || r2.Reset > 20 {
+		t.Fatalf("expected reset ~20 after 10s, got=%d", r2.Reset)
+	}
+
+	// 再快进 15 秒，Reset 应约 5 秒
+	mr.FastForward(15 * time.Second)
+	r3 := rl.Allow(ctx)
+	if r3.Reset < 3 || r3.Reset > 5 {
+		t.Fatalf("expected reset ~5 after 25s total, got=%d", r3.Reset)
+	}
+}
 func TestResolveMetaKey(t *testing.T) {
 	tests := []struct {
 		input string
@@ -388,7 +422,7 @@ func TestPrefixIsolation(t *testing.T) {
 
 	rl1.SetRule(context.Background(), Rule{
 		Name: "limit", Key: "ip", Path: "/test",
-		Total: 1, Duration: "1m",
+		Total: 1, Duration: time.Minute,
 	})
 
 	ctx := buildCtx("/test", "GET", meta.MetaUserIp, "1.2.3.4")
