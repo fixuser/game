@@ -160,8 +160,8 @@ type RateLimiter struct {
 
 // NewRateLimiter 创建限速器，自动从 Redis 加载规则并启动定时刷新
 //
-//	rl := ratelimit.NewRateLimiter(ctx, rdb, ratelimit.WithPrefix("api"))
-func NewRateLimiter(ctx context.Context, rdb redis.UniversalClient, opts ...Option) *RateLimiter {
+//	rl := ratelimit.NewRateLimiter(rdb, ratelimit.WithPrefix("api"))
+func NewRateLimiter(rdb redis.UniversalClient, opts ...Option) *RateLimiter {
 	o := defaultOptions
 	for _, fn := range opts {
 		fn(&o)
@@ -171,6 +171,8 @@ func NewRateLimiter(ctx context.Context, rdb redis.UniversalClient, opts ...Opti
 		rdb: rdb,
 		opt: o,
 	}
+
+	ctx := context.Background()
 
 	// 首次加载规则
 	if err := rl.LoadRules(ctx); err != nil {

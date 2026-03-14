@@ -25,7 +25,7 @@ func newTestLimiter(t *testing.T, rdb redis.UniversalClient, opts ...Option) *Ra
 	t.Helper()
 	// 使用很长的 reload 周期避免测试中自动刷新干扰
 	opts = append([]Option{WithReloadPeriod(1 * time.Hour)}, opts...)
-	rl := NewRateLimiter(context.Background(), rdb, opts...)
+	rl := NewRateLimiter(rdb, opts...)
 	t.Cleanup(func() { rl.Close() })
 	return rl
 }
