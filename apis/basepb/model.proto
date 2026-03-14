@@ -35,6 +35,12 @@ message User {
         TAG_UNSPECIFIED = 0;
         TAG_NICKNAME_CHANGED = 1; // 已经修改过昵称
     }
+
+    enum RegType {
+      REG_TYPE_UNSPECIFIED = 0;
+      REG_TYPE_EMAIL = 1; // 邮箱注册
+      REG_TYPE_PHONE = 2; // 手机注册
+    }
 }
 
 message LoginLog {
