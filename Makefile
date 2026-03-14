@@ -27,11 +27,11 @@ api:
 
 # build game
 game:
-	go build -o build/apps/gamed cmd/gamed/gamed.go
+	go build -o build/apps/gamed ./cmd/gamed/
 
 # build game for linux
 game_linux:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o build/apps/gamed_linux cmd/gamed/gamed.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o build/apps/gamed_linux ./cmd/gamed/
 
 
 # build all

@@ -112,8 +112,8 @@ func (s *gameServer) unaryServerInterceptor(ctx context.Context, req any, info *
 	if !authDisabled {
 		ctx = metadata.Context(ctx)
 
-		val, _ := lo.Ternary(isMan, s.manToken.Get, s.userToken.Get)(ctx, tokenId)
-		if val.IsTokenValid(platform) {
+		val, _ := lo.Ternary(isMan, s.manToken.Verify, s.userToken.Verify)(ctx, tokenId)
+		if val != nil && strings.EqualFold(val.Platform, platform) {
 			metadata.Set(meta.MetaUserId, val.UserId)
 			metadata.Set(meta.MetaUserType, val.UserType)
 			ctx = metadata.Context(ctx)
