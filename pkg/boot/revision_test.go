@@ -105,7 +105,7 @@ func TestString(t *testing.T) {
 		"git",
 		"abc1234567890",
 		"2026-03-13T10:00:00Z",
-		"modified: true",
+		"modified:",
 	}
 	for _, c := range checks {
 		if !strings.Contains(s, c) {

@@ -2,6 +2,7 @@ package boot
 
 import (
 	"cmp"
+	"fmt"
 	"net"
 	"os"
 	"path"
@@ -107,24 +108,29 @@ func (i Info) Short() string {
 // String 返回完整的版本信息
 func (i Info) String() string {
 	s := i.Module + " " + i.Version
-	s += "\n  go:       " + i.GoVersion
+
+	appendField := func(key, value string) {
+		s += fmt.Sprintf("\n  %-12s %s", key+":", value)
+	}
+
+	appendField("go", i.GoVersion)
 	if i.VCSType != "" {
-		s += "\n  vcs:      " + i.VCSType
+		appendField("vcs", i.VCSType)
 	}
 	if i.Revision != "" {
-		s += "\n  revision: " + i.Revision
+		appendField("revision", i.Revision)
 	}
 	if i.Time != nil {
-		s += "\n  time:     " + i.Time.Format(time.RFC3339)
+		appendField("time", i.Time.Format(time.RFC3339))
 	}
 	if i.Modified {
-		s += "\n  modified: true"
+		appendField("modified", "true")
 	}
 	if i.IntranetIP != "" {
-		s += "\n  intranet_ip: " + i.IntranetIP
+		appendField("intranet_ip", i.IntranetIP)
 	}
 	if i.Hostname != "" {
-		s += "\n  hostname:    " + i.Hostname
+		appendField("hostname", i.Hostname)
 	}
 	return s
 }
