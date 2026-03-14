@@ -83,7 +83,7 @@ func (s *gameServer) unaryServerInterceptor(ctx context.Context, req any, info *
 			stack := debug.Stack()
 			fmt.Println(string(stack))
 			logger.Error().Ctx(ctx).Bytes("stack", stack).Interface("panic", e).Msg("panic error")
-			err = errfmt.Errorf(codes.Internal, basepb.Code_CODE_INTERNAL_SERVER)
+			err = errfmt.Internal(basepb.Code_CODE_INTERNAL_SERVER)
 			return
 		}
 	}()
@@ -102,7 +102,7 @@ func (s *gameServer) unaryServerInterceptor(ctx context.Context, req any, info *
 	if v, ok := req.(validator); ok {
 		if err = v.Validate(); err != nil {
 			logger.Warn().Err(err).Msg("validate request failed")
-			err = errfmt.Errorf(codes.InvalidArgument, basepb.Code_CODE_ARGUMENT)
+			err = errfmt.BadRequest(basepb.Code_CODE_ARGUMENT)
 			return
 		}
 	}
@@ -122,8 +122,8 @@ func (s *gameServer) unaryServerInterceptor(ctx context.Context, req any, info *
 			authWhitelists := viper.GetStringSlice("auth.whitelists")
 			requestPath := metadata.GetString(meta.MetaRequestPath)
 			if !slices.Contains(authWhitelists, requestPath) {
-				err = errfmt.Errorf(codes.Unauthenticated, basepb.Code_CODE_UNAUTHORIZED)
 				logger.Warn().Str("token_id", tokenId).Msg("invalid token")
+				err = errfmt.Unauthorized(basepb.Code_CODE_UNAUTHORIZED)
 				return
 			}
 		}
