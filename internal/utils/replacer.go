@@ -32,8 +32,8 @@ func NewReplacerFromMap(data map[string]string) *Replacer {
 	}
 }
 
-// Set 向模板字典中设置或者更新一个键值对
-func (r *Replacer) Set(k, v any) *Replacer {
+// With 向模板字典中添加或者更新键值对，命名更符合 Builder 模式的链式调用语义
+func (r *Replacer) With(k, v any) *Replacer {
 	r.data[cast.ToString(k)] = cast.ToString(v)
 	return r
 }
@@ -45,4 +45,10 @@ func (r *Replacer) Replace(s string) string {
 		vs = append(vs, "{"+k+"}", v)
 	}
 	return strings.NewReplacer(vs...).Replace(s)
+}
+
+// FormatTemplate 提供一个全局快捷方法，无需手动实例化即可执行一次性替换
+// 用法：utils.FormatTemplate("hello {name}", "name", "world")
+func FormatTemplate(template string, v ...any) string {
+	return NewReplacer(v...).Replace(template)
 }

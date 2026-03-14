@@ -52,10 +52,17 @@ func TestReplacer(t *testing.T) {
 	t.Run("map constructor", func(t *testing.T) {
 		data := map[string]string{"foo": "bar"}
 		r := NewReplacerFromMap(data)
-		r.Set("baz", "qux")
+		r.With("baz", "qux")
 		got := r.Replace("{foo} and {baz}")
 		if got != "bar and qux" {
 			t.Errorf("expected 'bar and qux', got %v", got)
+		}
+	})
+
+	t.Run("global FormatTemplate", func(t *testing.T) {
+		got := FormatTemplate("Hi {user}, code is {code}", "user", "Bob", "code", "200")
+		if got != "Hi Bob, code is 200" {
+			t.Errorf("FormatTemplate failed, got %v", got)
 		}
 	})
 }
