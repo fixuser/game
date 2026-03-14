@@ -166,7 +166,7 @@ func (s *gameServer) initToken() {
 		manOpts = append(manOpts, token.WithAccessTtl(tokenExpires))
 	}
 	if refreshExpires := viper.GetDuration("token.man.refresh_ttl"); refreshExpires > 0 {
-		manOpts = append(manOpts, token.WithAccessTtl(refreshExpires))
+		manOpts = append(manOpts, token.WithRefreshTtl(refreshExpires))
 	}
 
 	var userOpts []token.Option

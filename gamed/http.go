@@ -81,11 +81,12 @@ func (w *responseWrapper) finalize() {
 
 // gatewayHandler 对请求响应格式进行包装
 func gatewayHandler(h http.Handler) http.Handler {
+	cs := cors.AllowAll()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 
 		wrapper := newResponseWrapper(w)
-		h = cors.AllowAll().Handler(h)
+		h = cs.Handler(h)
 		h.ServeHTTP(wrapper, r.WithContext(ctx))
 		wrapper.finalize()
 	})

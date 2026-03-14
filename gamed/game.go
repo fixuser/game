@@ -45,6 +45,7 @@ type gameServer struct {
 	msgCode        *msgcode.Manager
 	keyMutex       *boot.KeyMutex[string]
 	httpServer     *http.Server
+	grpcServer     *grpc.Server
 	tcpServer      net.Listener
 	startAt        time.Time
 	isClosed       atomic.Bool
@@ -106,6 +107,7 @@ func (s *gameServer) Main() {
 
 	// 启动grpc服务
 	if viper.GetBool("grpc.enabled") {
+		s.grpcServer = gsrv
 		s.tcpServer, err = net.Listen("tcp", tcpAddr)
 		if err != nil {
 			log.Fatal().Err(err).Msg("listen tcp error")
@@ -178,20 +180,50 @@ func (s *gameServer) Exit() {
 	// 退出所有模块
 	boot.Unload(boot.GetBoot().Context(context.Background()))
 
+	// 关闭限流器后台刷新任务
+	if s.rateLimiter != nil {
+		s.rateLimiter.Close()
+	}
+
 	// 等待其他常驻内存函数结束
 	s.wg.Wait()
 
-	// 链路追踪关闭
-	if s.tracerProvider != nil {
-		go s.tracerProvider.Shutdown(context.Background())
-	}
+	const shutdownTimeout = 10 * time.Second
 
 	// 关闭服务
 	if s.httpServer != nil {
-		s.httpServer.Close()
+		httpCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		if err := s.httpServer.Shutdown(httpCtx); err != nil {
+			log.Warn().Err(err).Msg("http server shutdown failed")
+		}
+		cancel()
 	}
-	if s.tcpServer != nil {
-		s.tcpServer.Close()
+	if s.grpcServer != nil {
+		gracefulDone := make(chan struct{})
+		go func() {
+			defer close(gracefulDone)
+			s.grpcServer.GracefulStop()
+		}()
+		select {
+		case <-gracefulDone:
+		case <-time.After(shutdownTimeout):
+			log.Warn().Dur("timeout", shutdownTimeout).Msg("grpc graceful stop timeout, forcing stop")
+			s.grpcServer.Stop()
+			<-gracefulDone
+		}
+	} else if s.tcpServer != nil {
+		if err := s.tcpServer.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			log.Warn().Err(err).Msg("grpc listener close failed")
+		}
+	}
+
+	// 链路追踪关闭
+	if s.tracerProvider != nil {
+		traceCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		if err := s.tracerProvider.Shutdown(traceCtx); err != nil {
+			log.Warn().Err(err).Msg("tracer provider shutdown failed")
+		}
+		cancel()
 	}
 
 	spent := time.Since(start).Seconds() * 1e3
